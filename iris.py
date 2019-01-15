@@ -3,6 +3,8 @@ import numpy as np
 import math
 from tkinter import filedialog
 
+NORMALIZED_BAND_WIDTH = 25
+
 def fill_image(img):
     h, w = img.shape[:2]
     zero_mask = np.zeros((h+2, w + 2), np.uint8)
@@ -47,8 +49,8 @@ def main():
     not_found_count = 0
 
     # detect outer_circle
-    img_grayscale = cv2.GaussianBlur(img_grayscale, (5,5), 0)
-    high_thresh, thresh_im = cv2.threshold(img_grayscale, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    blurred = cv2.GaussianBlur(img_grayscale, (5,5), 0)
+    high_thresh, thresh_im = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     low_thresh = 0.3 * high_thresh
     canny = cv2.Canny(thresh_im, low_thresh, high_thresh, 3)
 
@@ -66,7 +68,7 @@ def main():
         # detect pupil circle
         iris = outer_circles[0][0]
         iris_radius = iris[2]
-        roi = img_grayscale[int(iris[1] - iris_radius): int(iris[1] + iris_radius),
+        roi = blurred[int(iris[1] - iris_radius): int(iris[1] + iris_radius),
               int(iris[0] - iris_radius): int(iris[0] + iris_radius)]
         cv2.imshow("roi", roi)
 
@@ -97,14 +99,36 @@ def main():
             # img_color = print_circles(inner_circles[0], img_color)
 
         # align_circles
-        pupil_circle[0] = int(0.5 *(iris_circle[0] + pupil_circle[0]))
-        iris_circle[0] = pupil_circle[0]
-        pupil_circle[1] = int(0.5 * (iris_circle[1] + pupil_circle[1]))
-        iris_circle[1] = pupil_circle[1]
+        x_center = int(0.5 *(iris_circle[0] + pupil_circle[0]))
+        iris_circle[0] = x_center
+        pupil_circle[0] = x_center
+        y_center = int(0.5 * (iris_circle[1] + pupil_circle[1]))
+        iris_circle[1] = y_center
+        pupil_circle[1] = y_center
 
         aligned = print_circles([pupil_circle, iris_circle], img_color)
 
-        #normalize
+        # rubber sheet normalization
+        band_width = iris_circle[2] - pupil_circle[2]
+        # print("band width: ", band_width)
+        # normalized = cv2.logPolar(img_grayscale, (iris_circle[0], iris_circle[1]), iris_circle[2],
+        #                           cv2.WARP_FILL_OUTLIERS + cv2.INTER_LINEAR)
+        # normalized_pupil = cv2.logPolar(img_grayscale, (pupil_circle[0], pupil_circle[1]), pupil_circle[2],
+        #                           cv2.WARP_FILL_OUTLIERS + cv2.INTER_LINEAR)
+        # cv2.imshow("band", normalized)
+        # cv2.imshow("normalized pupil", normalized_pupil)
+
+        normalized_img = np.zeros((NORMALIZED_BAND_WIDTH, 360, 1), np.int8)
+        radius_increment = band_width / NORMALIZED_BAND_WIDTH
+
+        for i in range(0, NORMALIZED_BAND_WIDTH):
+            r = int(pupil_circle[2] + i * radius_increment)
+            for angle in range(0, 360):
+                y_circle = x_center - int(r * math.sin(np.deg2rad(angle)))
+                x_circle = y_center + int(r * math.cos(np.deg2rad(angle)))
+                normalized_img[i][angle] = img_grayscale[x_circle][y_circle]
+
+        cv2.imshow("normalized", normalized_img)
 
     else:
         not_found_count += 1
