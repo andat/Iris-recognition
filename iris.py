@@ -118,7 +118,7 @@ def main():
         # cv2.imshow("band", normalized)
         # cv2.imshow("normalized pupil", normalized_pupil)
 
-        normalized_img = np.zeros((NORMALIZED_BAND_WIDTH, 360, 1), np.int8)
+        normalized_img = np.zeros((NORMALIZED_BAND_WIDTH, 360, 1), np.uint8)
         radius_increment = band_width / NORMALIZED_BAND_WIDTH
 
         for i in range(0, NORMALIZED_BAND_WIDTH):
@@ -129,6 +129,22 @@ def main():
                 normalized_img[i][angle] = img_grayscale[x_circle][y_circle]
 
         cv2.imshow("normalized", normalized_img)
+
+        # encoding
+        filters = []
+        (sigma, lm, gamma, psi) = (2, 5, 1, 0)
+        for theta in np.arange(0, np.pi, np.pi / 4):
+            gabor_kernel = cv2.getGaborKernel((21, 21), sigma, theta, lm, gamma, psi,
+                                        ktype = cv2.CV_32F)
+            filters.append(gabor_kernel)
+
+        accum = np.zeros_like(normalized_img)
+        for filter in filters:
+            filtered = cv2.filter2D(normalized_img, cv2.CV_8UC3, filter)
+            np.maximum(accum, filtered.reshape(normalized_img.shape), accum)
+            # cv2.imshow("gabor", filtered)
+
+        cv2.imshow("gabor accumulator", accum)
 
     else:
         not_found_count += 1
