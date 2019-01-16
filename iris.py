@@ -5,20 +5,6 @@ from tkinter import filedialog
 
 NORMALIZED_BAND_WIDTH = 25
 
-def fill_image(img):
-    h, w = img.shape[:2]
-    zero_mask = np.zeros((h+2, w + 2), np.uint8)
-
-    filled_img = img.copy()
-    cv2.floodFill(filled_img, zero_mask, (0,0), 255)
-
-    #invert filled image
-    filled_img_inv = cv2.bitwise_not(filled_img)
-
-    fill_result = (img | filled_img_inv)
-
-    return fill_result
-
 def euclidean_dist(x1, x2, y1, y2):
     return math.sqrt(pow(x1 - x2, 2) + pow(y1-y2, 2))
 
@@ -33,6 +19,16 @@ def print_circles(circles, img_color):
 
     # cv2.imshow(window_name, img_color)
     return img_color
+
+def phase_quantization(angle):
+    if 0 <= angle < 90:
+        return [255, 255]
+    elif 90 <= angle < 180:
+        return [0, 255]
+    elif 180 <= angle < 270:
+        return [0, 0]
+    else:
+        return [255, 0]
 
 def main():
     #in_path = filedialog.askopenfilename()
@@ -110,14 +106,6 @@ def main():
 
         # rubber sheet normalization
         band_width = iris_circle[2] - pupil_circle[2]
-        # print("band width: ", band_width)
-        # normalized = cv2.logPolar(img_grayscale, (iris_circle[0], iris_circle[1]), iris_circle[2],
-        #                           cv2.WARP_FILL_OUTLIERS + cv2.INTER_LINEAR)
-        # normalized_pupil = cv2.logPolar(img_grayscale, (pupil_circle[0], pupil_circle[1]), pupil_circle[2],
-        #                           cv2.WARP_FILL_OUTLIERS + cv2.INTER_LINEAR)
-        # cv2.imshow("band", normalized)
-        # cv2.imshow("normalized pupil", normalized_pupil)
-
         normalized_img = np.zeros((NORMALIZED_BAND_WIDTH, 360, 1), np.uint8)
         radius_increment = band_width / NORMALIZED_BAND_WIDTH
 
@@ -127,10 +115,9 @@ def main():
                 y_circle = x_center - int(r * math.sin(np.deg2rad(angle)))
                 x_circle = y_center + int(r * math.cos(np.deg2rad(angle)))
                 normalized_img[i][angle] = img_grayscale[x_circle][y_circle]
-
         cv2.imshow("normalized", normalized_img)
 
-        # encoding
+        # extract features
         filters = []
         (sigma, lm, gamma, psi) = (2, 5, 1, 0)
         for theta in np.arange(0, np.pi, np.pi / 4):
@@ -138,13 +125,29 @@ def main():
                                         ktype = cv2.CV_32F)
             filters.append(gabor_kernel)
 
-        accum = np.zeros_like(normalized_img)
+        accumulator = np.zeros_like(normalized_img)
         for filter in filters:
             filtered = cv2.filter2D(normalized_img, cv2.CV_8UC3, filter)
-            np.maximum(accum, filtered.reshape(normalized_img.shape), accum)
+            filtered = np.reshape(filtered, normalized_img.shape)
+            np.maximum(accumulator, filtered, accumulator)
             # cv2.imshow("gabor", filtered)
+        cv2.imshow("gabor accumulator", accumulator)
 
-        cv2.imshow("gabor accumulator", accum)
+        # encoding
+        dft = cv2.dft(np.float32(accumulator), flags=cv2.DFT_COMPLEX_OUTPUT)
+        dft_shift = np.fft.fftshift(dft)
+
+        channels = cv2.split(dft_shift)
+        (magnitude, angles) = cv2.cartToPolar(channels[0], channels[1], angleInDegrees=True)
+
+        coded = np.zeros((accumulator.shape[0], 2 * accumulator.shape[1], 1), np.uint8)
+        for i in range(0, angles.shape[0]):
+            for j in range(0, angles.shape[1]):
+                [x1, x2] = phase_quantization(angles[i][j])
+                coded[i][2*j] = x1
+                coded[i][2*j + 1] = x2
+        cv2.imshow("iris code", coded)
+        feature_vector = np.reshape(coded, (1, coded.shape[0] * coded.shape[1]))
 
     else:
         not_found_count += 1
